@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[1]:
+# In[35]:
 
 
 import base64
@@ -12,11 +12,11 @@ from multiprocessing import Process, Queue
 import os
 
 access_token = '24.46a59369c77ecda08838e4cf097e1bf6.2592000.1571900094.282335-17330240'
-#__VideoIndex__ = '.\Data\WIN_20190927_12_48_37_Pro.mp4'
-__VideoIndex__ = None
+__VideoIndex__ = './Data/WIN_20190927_12_54_40_Pro.mp4'
+#__VideoIndex__ = None
 
 
-# In[25]:
+# In[36]:
 
 
 '''
@@ -119,10 +119,7 @@ def ReleaseVideo():
 '''
 def ReadImg():
     ref,frame = capture.read()
-    if ref == True:
-        return frame
-    else:
-        return None
+    return ref,frame
     
 def SaveImg(frame):
     cv2.imwrite('temp_0.jpg',frame)
@@ -141,9 +138,20 @@ def LoadImgFile():
         img = base64.b64encode(f.read())
     return img
 
-def Trigger(KeyPointContent):
-    if KeyPointContent:
-        print(KeyPointContent)
+
+# trigger the latter function.
+def Trigger(body_parts):
+    if body_parts:
+        print('left w - left s = ',abs(body_parts['left_wrist']['y'] - body_parts['left_shoulder']['y']))
+        print('right w - right s = ' , abs(body_parts['right_wrist']['y'] - body_parts['right_shoulder']['y']))
+        
+        #if abs(body_parts['left_wrist']['y'] - body_parts['left_shoulder']['y']) < 50 and \
+        #    abs(body_parts['left_wrist']['y'] - body_parts['right_shoulder']['y']) < 50:
+        #    return 1
+        
+        return 0
+        
+        
     else:
         raise Exception("content is None")
         
@@ -194,6 +202,28 @@ def ImgProcess():
     ReleaseVideo()
     
     
+    
+def PutQueue(img_q,img):
+    if img_q.qsize()<500:
+        img_q.put(img)
+    else:
+        img_q.get(True)
+        img_q.put(img)
+        
+def OutputMov(img_q):
+    fourcc = cv2.VideoWriter_fourcc(*'XVID')  # 保存视频的编码
+    
+
+    out = cv2.VideoWriter('outeeput.mp4',fourcc, 30.0, (640,480))
+    #while not img_q.empty():
+    while img_q.qsize() > 0:
+        frame = img_q.get(True)
+        out.write(frame)
+    print(img_q.empty())
+    print(img_q.qsize())
+    out.release()
+        
+    
 '''
 多进程
 serv_flag_q 是 图像读入后 通知serv开始执行的符号
@@ -201,20 +231,40 @@ serv_flag_q 是 图像读入后 通知serv开始执行的符号
 当检测到servflag 非空时，图像线程将直接进行打印上次结果
 '''
 
-def img_p(frame_q,serv_flag_q,res_q,stop_q):
+def img_p(frame_q,serv_flag_q,res_q,stop_q,img_q1,img_q2):
+    
+    QUEUE_IN_USE = 1
+    
     InitVideo()
+    
+    X_upload = 320
+    Y_upload = 240
+    X_saveh263 = 640#352
+    Y_saveh263 = 480#288
     body_parts =  {'left_wrist': {'y': 1, 'x': 1, 'score': 0}, 'right_wrist': {'y': 1, 'x': 1, 'score': 0}, 'left_shoulder': {'y': 1, 'x': 1, 'score': 0}, 'right_shoulder': {'y': 1, 'x': 1, 'score': 0}}#init body part
-    for i in range(500):
-        frame = ReadImg()
-        frame = cv2.resize(frame,(320,240),interpolation=cv2.INTER_CUBIC)
+    
+    for i in range(1000):
+        ref,frame_orig = ReadImg()
+        if ref == False:
+            break
+        frame_save = cv2.resize(frame_orig,(X_saveh263,Y_saveh263),interpolation=cv2.INTER_CUBIC)
+        #frame_save = frame_orig
+        if (QUEUE_IN_USE == 1):
+            PutQueue(img_q1,frame_save)
+        else:
+            PutQueue(img_q2,frame_save)
+            
+        frame = cv2.resize(frame_orig,(X_upload,Y_upload),interpolation=cv2.INTER_CUBIC)
         frame = ImgPreprocess(frame)
         res = 0 
-        if serv_flag_q.empty():#如果服务器闲 serv_q is empty
+        if serv_flag_q.qsize() == 0:#如果服务器闲 serv_q is empty
             print('serv_p is idle')
-            if not res_q.empty():#如果服务器有返回的res,res_q is not empty
+            if res_q.qsize() > 0:#如果服务器有返回的res,res_q is not empty
                 res = res_q.get(True)
             print('write a frame')
             frame_q.put(frame)
+            while frame_q.qsize() == 0:
+                True
             print('start a serv')
             serv_flag_q.put(1)#置服务器忙状态
             
@@ -225,11 +275,12 @@ def img_p(frame_q,serv_flag_q,res_q,stop_q):
             
             
             if 'person_num' in res:
-                if res['person_num'] == 1:        
+                if res['person_num'] >0:        
                     for i in body_parts:
                         body_parts[i] = res['person_info'][0]['body_parts'][i]
                     #print("\r",body_parts,end="",flush=True)
                     
+            print("trigger = ",Trigger(body_parts))
 
             
             #人脸使用
@@ -239,14 +290,17 @@ def img_p(frame_q,serv_flag_q,res_q,stop_q):
                 #print(1)
 
         
-        
+        # print body_parts
         for i in body_parts:
             if body_parts[i]['score']>0.3:
-                cv2.circle(frame,(int(body_parts[i]['x']),int(body_parts[i]['y'])),10,(0,255,255),4)
-        print(body_parts)
-        cv2.imshow("1",frame)
+                cv2.circle(frame_orig,(int(body_parts[i]['x']/X_upload*frame_orig.shape[1]),int(body_parts[i]['y']/Y_upload*frame_orig.shape[0])),10,(0,255,255),4)
+        #print(body_parts)
+        cv2.imshow("1",frame_orig)
         cv2.waitKey(1)
         
+    OutputMov(img_q1)
+    print(img_q1.qsize())
+    print('start stopping')
     stop_q.put(1)
     cv2.destroyAllWindows()
     ReleaseVideo()
@@ -254,34 +308,36 @@ def img_p(frame_q,serv_flag_q,res_q,stop_q):
     
 
 def serv_p(frame_q,serv_flag_q,res_q,stop_q):
-    while(stop_q.empty()):
-        if not serv_flag_q.empty():#如果置位了服务器忙信号 serv flag is not empty
-            if frame_q.empty():#如果此时frame队列没有东西，则应该是脑子出了问题
-                raise Exception('Frame is empty')
-            print('get a frame')
+    while(stop_q.qsize()==0):
+        if not serv_flag_q.qsize()>0:#如果置位了服务器忙信号 serv flag is not empty
+            #if frame_q.qsize()==0:#如果此时frame队列没有东西，则应该是脑子出了问题
+                #raise Exception('Frame is empty')
+            
             frame = frame_q.get(True)#提取图像
+            print('get a frame')
             res = ImgService(frame)#提交服务器
-            if not res_q.empty():
+            if res_q.qsize()>0:
                 raise Exception('Res is not empty')
             res_q.put(res)
             print('stop a serv')
             serv_flag_q.get(True)#取消服务器忙信号
+    print('serv_p_stopped')
 
 
+# In[37]:
 
 
-
-if __name__ == '__main__':
-    f_q = Queue()
-    s_q = Queue()
-    r_q = Queue()
-    st_q = Queue()
-    pi = Process(target = img_p, args = (f_q,s_q,r_q,st_q,))
-    ps = Process(target = serv_p, args = (f_q,s_q,r_q,st_q,))
-    pi.start()
-    ps.start()
-    pi.join()
-
+f_q = Queue()
+s_q = Queue()
+r_q = Queue()
+st_q = Queue()
+img_q1 = Queue()
+img_q2 = Queue()
+pi = Process(target = img_p, args = (f_q,s_q,r_q,st_q,img_q1,img_q2))
+ps = Process(target = serv_p, args = (f_q,s_q,r_q,st_q,))
+pi.start()
+ps.start()
+pi.join()
 
 
 
