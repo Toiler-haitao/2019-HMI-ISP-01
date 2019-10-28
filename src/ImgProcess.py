@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[35]:
+# In[1]:
 
 
 import base64
@@ -11,12 +11,12 @@ import cv2
 from multiprocessing import Process, Queue
 import os
 
-access_token = '24.46a59369c77ecda08838e4cf097e1bf6.2592000.1571900094.282335-17330240'
-__VideoIndex__ = './Data/WIN_20190927_12_54_40_Pro.mp4'
+access_token = '24.3a8df80dc63ce8ac24ec1a7b115f2d5f.2592000.1574820093.282335-17330240'
+__VideoIndex__ = './Data/WIN_20190927_12_48_37_Pro.mp4'
 #__VideoIndex__ = None
 
 
-# In[36]:
+# In[2]:
 
 
 '''
@@ -139,21 +139,74 @@ def LoadImgFile():
     return img
 
 
-# trigger the latter function.
-def Trigger(body_parts):
+#internal trig function
+def _TrigGen(body_parts):
     if body_parts:
-        print('left w - left s = ',abs(body_parts['left_wrist']['y'] - body_parts['left_shoulder']['y']))
-        print('right w - right s = ' , abs(body_parts['right_wrist']['y'] - body_parts['right_shoulder']['y']))
+        #print('left w - left s = ',abs(body_parts['left_wrist']['y'] - body_parts['left_shoulder']['y']))
+        #print('right w - right s = ' , abs(body_parts['right_wrist']['y'] - body_parts['right_shoulder']['y']))
         
-        #if abs(body_parts['left_wrist']['y'] - body_parts['left_shoulder']['y']) < 50 and \
-        #    abs(body_parts['left_wrist']['y'] - body_parts['right_shoulder']['y']) < 50:
-        #    return 1
+        if abs(body_parts['left_wrist']['y'] - body_parts['left_shoulder']['y']) < 30 or             abs(body_parts['right_wrist']['y'] - body_parts['right_shoulder']['y']) < 30:
+            return 1
         
         return 0
-        
-        
     else:
         raise Exception("content is None")
+
+
+
+# trigger the latter function.
+trigger_list = []# direct trig res
+trigger_res_list = []
+trig_frame_wait = 0
+def Trigger(body_parts):
+    result = 0
+    global trigger_list
+    global trigger_res_list
+    global trig_frame_wait
+    
+    LIST_INDEX_MAX = 10
+    RES_INDEX_MAX = 10
+    
+    if not trig_frame_wait:
+
+        
+        cur_res = 0
+        cur_trig = _TrigGen(body_parts)
+        trigger_list = trigger_list + [cur_trig]
+        sum_list_index = 0
+        sum_trig_index = 0
+        
+        for i in range(2):#0-1
+            sum_list_index = sum_list_index + trigger_list.count(i)
+        if sum_list_index > LIST_INDEX_MAX: #
+            trigger_list = trigger_list[-LIST_INDEX_MAX:]
+            sum_list_index = LIST_INDEX_MAX
+            
+        for i in range(3):#0-1
+            sum_trig_index = sum_trig_index + trigger_res_list.count(i)
+        if sum_trig_index > RES_INDEX_MAX: #
+            trigger_res_list = trigger_res_list[-RES_INDEX_MAX:]
+            sum_trig_index = RES_INDEX_MAX
+            
+        if sum_list_index == LIST_INDEX_MAX:
+            if trigger_list.count(1) > 6:
+                cur_res = 1
+            if trigger_list.count(0) > 6:
+                cur_res = 2
+            
+            trigger_res_list = trigger_res_list + [cur_res]
+        
+        if sum_list_index == LIST_INDEX_MAX and sum_trig_index == RES_INDEX_MAX:
+            if trigger_res_list[:6].count(1) > 5 and trigger_res_list[-4:].count(2) > 3:
+                result = 1
+                trig_frame_wait = 200
+    else:
+        trig_frame_wait = trig_frame_wait - 1
+    print(trigger_list)
+    print(trigger_res_list)
+    return result
+        
+    
         
 '''
 服务器申请函数
@@ -184,7 +237,7 @@ def ImgProcess():
                 if res['person_num'] == 1:        
                     for i in body_parts:
                         body_parts[i] = res['person_info'][0]['body_parts'][i]
-                    print("\r",body_parts,end="",flush=True)
+                    #print("\r",body_parts,end="",flush=True)
                     for i in body_parts:
                         if body_parts[i]['score']>0.5:
                             cv2.circle(frame,(int(body_parts[i]['x']),int(body_parts[i]['y'])),10,(0,255,255),4)
@@ -210,17 +263,15 @@ def PutQueue(img_q,img):
         img_q.get(True)
         img_q.put(img)
         
-def OutputMov(img_q):
+def OutputMov(img_q,rcd_index):
     fourcc = cv2.VideoWriter_fourcc(*'XVID')  # 保存视频的编码
     
 
-    out = cv2.VideoWriter('outeeput.mp4',fourcc, 30.0, (640,480))
+    out = cv2.VideoWriter('outeeput'+str(rcd_index)+'.mp4',fourcc, 20.0, (640,480))
     #while not img_q.empty():
     while img_q.qsize() > 0:
         frame = img_q.get(True)
         out.write(frame)
-    print(img_q.empty())
-    print(img_q.qsize())
     out.release()
         
     
@@ -234,6 +285,7 @@ serv_flag_q 是 图像读入后 通知serv开始执行的符号
 def img_p(frame_q,serv_flag_q,res_q,stop_q,img_q1,img_q2):
     
     QUEUE_IN_USE = 1
+    RECORD_INDEX = 0
     
     InitVideo()
     
@@ -243,7 +295,7 @@ def img_p(frame_q,serv_flag_q,res_q,stop_q,img_q1,img_q2):
     Y_saveh263 = 480#288
     body_parts =  {'left_wrist': {'y': 1, 'x': 1, 'score': 0}, 'right_wrist': {'y': 1, 'x': 1, 'score': 0}, 'left_shoulder': {'y': 1, 'x': 1, 'score': 0}, 'right_shoulder': {'y': 1, 'x': 1, 'score': 0}}#init body part
     
-    for i in range(1000):
+    for i in range(5000):
         ref,frame_orig = ReadImg()
         if ref == False:
             break
@@ -258,14 +310,14 @@ def img_p(frame_q,serv_flag_q,res_q,stop_q,img_q1,img_q2):
         frame = ImgPreprocess(frame)
         res = 0 
         if serv_flag_q.qsize() == 0:#如果服务器闲 serv_q is empty
-            print('serv_p is idle')
+            #print('serv_p is idle')
             if res_q.qsize() > 0:#如果服务器有返回的res,res_q is not empty
                 res = res_q.get(True)
-            print('write a frame')
+            #print('write a frame')
             frame_q.put(frame)
             while frame_q.qsize() == 0:
                 True
-            print('start a serv')
+            #print('start a serv')
             serv_flag_q.put(1)#置服务器忙状态
             
         if res:
@@ -279,9 +331,16 @@ def img_p(frame_q,serv_flag_q,res_q,stop_q,img_q1,img_q2):
                     for i in body_parts:
                         body_parts[i] = res['person_info'][0]['body_parts'][i]
                     #print("\r",body_parts,end="",flush=True)
-                    
-            print("trigger = ",Trigger(body_parts))
-
+            
+            trig = Trigger(body_parts)
+            print("trigger = ",trig)
+            if trig:#
+                if QUEUE_IN_USE == 1:
+                    OutputMov(img_q1,RECORD_INDEX)
+                else:
+                    OutputMov(img_q2,RECORD_INDEX)
+                RECORD_INDEX = RECORD_INDEX + 1
+            
             
             #人脸使用
             #if res['error_code'] == 0:
@@ -298,9 +357,15 @@ def img_p(frame_q,serv_flag_q,res_q,stop_q,img_q1,img_q2):
         cv2.imshow("1",frame_orig)
         cv2.waitKey(1)
         
-    OutputMov(img_q1)
-    print(img_q1.qsize())
+    
+    
     print('start stopping')
+    while img_q1.qsize()>0:
+        img_q1.get(True)
+    while img_q2.qsize()>0:
+        img_q2.get(True)
+    print(img_q1.qsize())
+    print(img_q2.qsize())
     stop_q.put(1)
     cv2.destroyAllWindows()
     ReleaseVideo()
@@ -319,12 +384,12 @@ def serv_p(frame_q,serv_flag_q,res_q,stop_q):
             if res_q.qsize()>0:
                 raise Exception('Res is not empty')
             res_q.put(res)
-            print('stop a serv')
+            #print('stop a serv')
             serv_flag_q.get(True)#取消服务器忙信号
     print('serv_p_stopped')
 
 
-# In[37]:
+# In[3]:
 
 
 f_q = Queue()
