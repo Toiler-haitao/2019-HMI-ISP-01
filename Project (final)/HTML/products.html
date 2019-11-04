@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  	<title>Products</title>
+  	<meta charset="utf-8">
+    <style>
+        html,body{
+            margin: 0;
+            width:100%;
+            height: 100%;
+        }
+        #video1{
+            padding-left:500px;
+            padding-top:200px;
+            width:640px;
+            height:480px;
+        }
+        .hidden{
+            display:none;
+        }
+    </style>
+    <link rel="stylesheet" href="css/style.css">
+	<link rel="stylesheet" href="css/zerogrid.css">
+	<link rel="stylesheet" href="css/responsive.css">
+	<script src="js/css3-mediaqueries.js"></script>
+    <script src="js/jquery-1.7.1.min.js"></script>
+    <script src="js/superfish.js"></script>
+    <script src="js/jquery.easing.1.3.js"></script>
+    <script src="js/tms-0.4.1.js"></script>
+    <script src="js/slider.js"></script>
+    <script type="text/javascript" src="https://code.jquery.com/jquery-3.3.1.js" integrity="sha256-2Kok7MbOyxpgUVvAk/HJ2jigOSYS2auK4Pfzbm7uH60=" crossorigin="anonymous"></script>
+</head>
+<body>
+<div class="main-bg">
+    <div>
+        <!--<video id="video1" muted="muted" autoplay="autoplay" src="" controls="controls"> -->
+        <video id="video1" src="" muted="muted" controls="controls">
+        </video>
+        <input type="button" value="播放视频" onClick="play()">
+    </div>
+</div>
+</body>
+<script type="text/javascript">
+    var flag=0;
+    function play(){
+        var video = document.getElementById("video1");
+        video.src = "./video.mp4";
+        if(flag==0){
+            video.play();
+            flag=1;
+        }
+        else{
+            video.pause();
+            flag=0;
+        }
+    }
+</script>
+</html>
